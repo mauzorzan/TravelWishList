@@ -92,7 +92,7 @@ export const update = async (
 export const remove = async (id: number): Promise<boolean> => {
   try {
     const result = await sql`DELETE FROM wishlist_items WHERE id = ${id}`;
-    return result.rowCount > 0;
+    return (result.rowCount ?? 0) > 0;
   } catch (error) {
     console.error('Error in remove:', error);
     return false;
