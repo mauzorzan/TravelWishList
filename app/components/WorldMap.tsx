@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 
 export interface TravelDestination {
   id: number;
@@ -36,30 +36,43 @@ const TIMELINE_LABELS: Record<string, string> = {
 
 const WorldMap: React.FC<WorldMapProps> = ({ destinations, selectedDestination, onSelectDestination }) => {
   const mapDivRef = useRef<HTMLDivElement>(null);
-  const chartInstanceRef = useRef<any>(null);
-  const lineSeriesInstanceRef = useRef<any>(null);
-  const planeSeriesInstanceRef = useRef<any>(null);
+  const chartRef = useRef<any>(null);
+  const lineSeriesRef = useRef<any>(null);
+  const planeSeriesRef = useRef<any>(null);
+  const markerSeriesRef = useRef<any>(null);
+  const destinationsRef = useRef<TravelDestination[]>([]);
+  const onSelectRef = useRef(onSelectDestination);
   const [mapReady, setMapReady] = useState(false);
   const [showBubble, setShowBubble] = useState(false);
   const [bubblePos, setBubblePos] = useState({ x: 0, y: 0 });
   const prevDestIdRef = useRef<number | null>(null);
 
-  // Initialize map
+  // Keep refs updated
   useEffect(() => {
-    let chart: any = null;
+    destinationsRef.current = destinations;
+  }, [destinations]);
+
+  useEffect(() => {
+    onSelectRef.current = onSelectDestination;
+  }, [onSelectDestination]);
+
+  // Initialize map only once
+  useEffect(() => {
     let disposed = false;
 
     const init = async () => {
+      if (!mapDivRef.current) return;
+
       const am4core = await import('@amcharts/amcharts4/core');
       const am4maps = await import('@amcharts/amcharts4/maps');
       const worldGeodata = (await import('@amcharts/amcharts4-geodata/worldHigh')).default;
       const am4themes_animated = (await import('@amcharts/amcharts4/themes/animated')).default;
 
-      if (disposed || !mapDivRef.current) return;
+      if (disposed) return;
 
       am4core.useTheme(am4themes_animated);
 
-      chart = am4core.create(mapDivRef.current, am4maps.MapChart);
+      const chart = am4core.create(mapDivRef.current, am4maps.MapChart);
       chart.geodata = worldGeodata;
       chart.projection = new am4maps.projections.Miller();
       chart.homeZoomLevel = 1.2;
@@ -91,35 +104,36 @@ const WorldMap: React.FC<WorldMapProps> = ({ destinations, selectedDestination, 
       const markerSeries = chart.series.push(new am4maps.MapImageSeries());
       markerSeries.mapImages.template.propertyFields.longitude = 'longitude';
       markerSeries.mapImages.template.propertyFields.latitude = 'latitude';
+      markerSeries.mapImages.template.nonScaling = true;
+      markerSeries.mapImages.template.tooltipText = '{title}';
+      markerSeries.mapImages.template.cursorOverStyle = am4core.MouseCursorStyle.pointer;
 
+      // Circle background
       const circle = markerSeries.mapImages.template.createChild(am4core.Circle);
-      circle.radius = 7;
+      circle.radius = 12;
       circle.propertyFields.fill = 'color';
       circle.stroke = am4core.color('#fff');
       circle.strokeWidth = 2;
-      circle.nonScaling = true;
-      circle.tooltipText = '{title}';
-      circle.cursorOverStyle = am4core.MouseCursorStyle.pointer;
 
-      // Marker data
-      const markers = [
-        { latitude: SF_COORDS.latitude, longitude: SF_COORDS.longitude, title: 'San Francisco', color: am4core.color('#06b6d4') },
-        ...destinations.map(d => ({
-          latitude: d.latitude,
-          longitude: d.longitude,
-          title: `${d.destination}, ${d.country}`,
-          color: am4core.color('#ff6b6b'),
-          id: d.id
-        }))
-      ];
-      markerSeries.data = markers;
+      // Rank label inside circle
+      const label = markerSeries.mapImages.template.createChild(am4core.Label);
+      label.text = '{rank}';
+      label.fill = am4core.color('#fff');
+      label.fontSize = 10;
+      label.fontWeight = 'bold';
+      label.horizontalCenter = 'middle';
+      label.verticalCenter = 'middle';
+      label.dy = 0;
 
-      // Click handler
+      // Click handler - uses refs to get current values
       markerSeries.mapImages.template.events.on('hit', (ev: any) => {
         const data = ev.target.dataItem?.dataContext as any;
-        if (data?.id && onSelectDestination) {
-          const dest = destinations.find(d => d.id === data.id);
-          if (dest) onSelectDestination(dest);
+        if (data?.id !== undefined) {
+          const destId = typeof data.id === 'string' ? parseInt(data.id, 10) : data.id;
+          const dest = destinationsRef.current.find(d => d.id === destId);
+          if (dest && onSelectRef.current) {
+            onSelectRef.current(dest);
+          }
         }
       });
 
@@ -129,9 +143,11 @@ const WorldMap: React.FC<WorldMapProps> = ({ destinations, selectedDestination, 
       chart.zoomControl.valign = 'middle';
 
       // Store refs
-      chartInstanceRef.current = chart;
-      lineSeriesInstanceRef.current = lineSeries;
-      planeSeriesInstanceRef.current = planeSeries;
+      chartRef.current = chart;
+      lineSeriesRef.current = lineSeries;
+      planeSeriesRef.current = planeSeries;
+      markerSeriesRef.current = markerSeries;
+      
       setMapReady(true);
     };
 
@@ -140,12 +156,44 @@ const WorldMap: React.FC<WorldMapProps> = ({ destinations, selectedDestination, 
     return () => {
       disposed = true;
       setMapReady(false);
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.dispose();
-        chartInstanceRef.current = null;
+      if (chartRef.current) {
+        chartRef.current.dispose();
+        chartRef.current = null;
       }
     };
-  }, [destinations, onSelectDestination]);
+  }, []); // Only run once
+
+  // Update markers when destinations change
+  useEffect(() => {
+    if (!mapReady || !markerSeriesRef.current) return;
+
+    const updateMarkers = async () => {
+      const am4core = await import('@amcharts/amcharts4/core');
+      
+      const markers = [
+        { 
+          latitude: SF_COORDS.latitude, 
+          longitude: SF_COORDS.longitude, 
+          title: 'San Francisco (Home)', 
+          color: am4core.color('#06b6d4'),
+          id: -1,
+          rank: '✈' // SF marker shows plane icon
+        },
+        ...destinations.map(d => ({
+          latitude: Number(d.latitude),
+          longitude: Number(d.longitude),
+          title: `${d.destination}, ${d.country}`,
+          color: am4core.color('#ff6b6b'),
+          id: d.id,
+          rank: String(d.rank)
+        }))
+      ];
+      
+      markerSeriesRef.current.data = markers;
+    };
+
+    updateMarkers();
+  }, [mapReady, destinations]);
 
   // Animate when destination changes
   useEffect(() => {
@@ -160,12 +208,11 @@ const WorldMap: React.FC<WorldMapProps> = ({ destinations, selectedDestination, 
     }
     prevDestIdRef.current = selectedDestination.id;
 
-    const chart = chartInstanceRef.current;
-    const lineSeries = lineSeriesInstanceRef.current;
-    const planeSeries = planeSeriesInstanceRef.current;
+    const chart = chartRef.current;
+    const lineSeries = lineSeriesRef.current;
+    const planeSeries = planeSeriesRef.current;
 
     if (!chart || !lineSeries || !planeSeries) {
-      console.log('Chart not ready');
       return;
     }
 
@@ -179,57 +226,65 @@ const WorldMap: React.FC<WorldMapProps> = ({ destinations, selectedDestination, 
     }
 
     const animate = async () => {
-      const am4core = await import('@amcharts/amcharts4/core');
+      try {
+        const am4core = await import('@amcharts/amcharts4/core');
 
-      // Create line
-      const line = lineSeries.mapLines.create();
-      line.multiGeoLine = [[
-        { latitude: SF_COORDS.latitude, longitude: SF_COORDS.longitude },
-        { latitude: selectedDestination.latitude, longitude: selectedDestination.longitude }
-      ]];
+        const destLat = Number(selectedDestination.latitude);
+        const destLon = Number(selectedDestination.longitude);
 
-      // Create plane
-      const planeContainer = planeSeries.mapImages.create();
-      planeContainer.latitude = SF_COORDS.latitude;
-      planeContainer.longitude = SF_COORDS.longitude;
+        // Create line
+        const line = lineSeries.mapLines.create();
+        line.multiGeoLine = [[
+          { latitude: SF_COORDS.latitude, longitude: SF_COORDS.longitude },
+          { latitude: destLat, longitude: destLon }
+        ]];
 
-      const planeSprite = planeContainer.createChild(am4core.Sprite);
-      planeSprite.path = 'm2,106h28l24,30h72l-44,-133h35l80,132h98c21,0 21,34 0,34l-98,0 -80,134h-35l43,-133h-71l-24,30h-28l15,-47';
-      planeSprite.fill = am4core.color('#ffd93d');
-      planeSprite.scale = 0.18;
-      planeSprite.strokeOpacity = 0;
-      planeSprite.horizontalCenter = 'middle';
-      planeSprite.verticalCenter = 'middle';
+        // Create plane
+        const planeContainer = planeSeries.mapImages.create();
+        planeContainer.latitude = SF_COORDS.latitude;
+        planeContainer.longitude = SF_COORDS.longitude;
 
-      // Calculate direction
-      let dLon = selectedDestination.longitude - SF_COORDS.longitude;
-      const dLat = selectedDestination.latitude - SF_COORDS.latitude;
-      if (dLon > 180) dLon -= 360;
-      if (dLon < -180) dLon += 360;
-      planeSprite.rotation = Math.atan2(-dLat, dLon) * (180 / Math.PI);
+        const planeSprite = planeContainer.createChild(am4core.Sprite);
+        planeSprite.path = 'm2,106h28l24,30h72l-44,-133h35l80,132h98c21,0 21,34 0,34l-98,0 -80,134h-35l43,-133h-71l-24,30h-28l15,-47';
+        planeSprite.fill = am4core.color('#ffd93d');
+        planeSprite.scale = 0.18;
+        planeSprite.strokeOpacity = 0;
+        planeSprite.horizontalCenter = 'middle';
+        planeSprite.verticalCenter = 'middle';
 
-      // Animate flight
-      planeContainer.animate({ property: 'latitude', to: selectedDestination.latitude }, 2000, am4core.ease.sinInOut);
-      planeContainer.animate({ property: 'longitude', to: selectedDestination.longitude }, 2000, am4core.ease.sinInOut);
+        // Calculate direction (shortest path)
+        let dLon = destLon - SF_COORDS.longitude;
+        const dLat = destLat - SF_COORDS.latitude;
+        if (dLon > 180) dLon -= 360;
+        if (dLon < -180) dLon += 360;
+        planeSprite.rotation = Math.atan2(-dLat, dLon) * (180 / Math.PI);
 
-      // Zoom out
-      chart.goHome(500);
+        // Animate flight
+        planeContainer.animate({ property: 'latitude', to: destLat }, 2000, am4core.ease.sinInOut);
+        planeContainer.animate({ property: 'longitude', to: destLon }, 2000, am4core.ease.sinInOut);
 
-      // Show bubble after flight
-      setTimeout(() => {
-        try {
-          const point = chart.geoPointToSVG({
-            latitude: selectedDestination.latitude,
-            longitude: selectedDestination.longitude
-          });
-          if (point && !isNaN(point.x) && !isNaN(point.y)) {
-            setBubblePos({ x: point.x, y: point.y });
-            setShowBubble(true);
+        // Zoom out
+        chart.goHome(500);
+
+        // Show bubble after flight
+        setTimeout(() => {
+          try {
+            if (!chartRef.current) return;
+            const point = chartRef.current.geoPointToSVG({
+              latitude: destLat,
+              longitude: destLon
+            });
+            if (point && !isNaN(point.x) && !isNaN(point.y)) {
+              setBubblePos({ x: point.x, y: point.y });
+              setShowBubble(true);
+            }
+          } catch (e) {
+            // ignore
           }
-        } catch (e) {
-          // ignore
-        }
-      }, 2200);
+        }, 2200);
+      } catch (e) {
+        console.error('Animation error:', e);
+      }
     };
 
     const timer = setTimeout(animate, 100);
