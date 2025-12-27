@@ -11,9 +11,6 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Travel Wishlist",
   description: "Your dream destinations, ranked and mapped from San Francisco",
-  icons: {
-    icon: '/favicon.ico',
-  },
 };
 
 export default function RootLayout({
