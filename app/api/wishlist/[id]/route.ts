@@ -15,16 +15,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     
     if (!item) {
       return NextResponse.json(
-        { error: 'Item not found' },
+        { error: 'Destination not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json(item);
   } catch (error) {
-    console.error('Error fetching wishlist item:', error);
+    console.error('Error fetching travel destination:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch wishlist item' },
+      { error: 'Failed to fetch travel destination' },
       { status: 500 }
     );
   }
@@ -35,30 +35,37 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const body = await request.json();
 
-    if (!body.link) {
+    if (!body.destination || !body.country) {
       return NextResponse.json(
-        { error: 'Link is required' },
+        { error: 'Destination and country are required' },
         { status: 400 }
       );
     }
 
     const updatedItem = await update(parseInt(id), {
-      link: body.link,
-      notes: body.notes,
+      rank: body.rank,
+      destination: body.destination,
+      country: body.country,
+      latitude: body.latitude,
+      longitude: body.longitude,
+      reason: body.reason,
+      budget: body.budget,
+      timeline: body.timeline,
+      image_url: body.image_url,
     });
 
     if (!updatedItem) {
       return NextResponse.json(
-        { error: 'Item not found' },
+        { error: 'Destination not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json(updatedItem);
   } catch (error) {
-    console.error('Error updating wishlist item:', error);
+    console.error('Error updating travel destination:', error);
     return NextResponse.json(
-      { error: 'Failed to update wishlist item' },
+      { error: 'Failed to update travel destination' },
       { status: 500 }
     );
   }
@@ -71,18 +78,17 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     if (!success) {
       return NextResponse.json(
-        { error: 'Item not found' },
+        { error: 'Destination not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Error deleting wishlist item:', error);
+    console.error('Error deleting travel destination:', error);
     return NextResponse.json(
-      { error: 'Failed to delete wishlist item' },
+      { error: 'Failed to delete travel destination' },
       { status: 500 }
     );
   }
 }
-

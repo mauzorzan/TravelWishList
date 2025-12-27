@@ -1,267 +1,188 @@
-# ✨ Wishlist App
+# ✈️ Travel Wishlist
 
-A beautiful, full-stack CRUD application for managing your wishlist. Save links to items you want with notes, all stored in a lightweight SQLite database.
+A beautiful, interactive travel wishlist app that helps you plan and visualize your dream destinations from San Francisco.
 
-## Features
+![Travel Wishlist](https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1200&h=400&fit=crop)
 
-- ✅ **Create** - Add new items with links and notes
-- 📝 **Read** - View all your wishlist items
-- ✏️ **Update** - Edit existing items
-- 🗑️ **Delete** - Remove items you no longer want
-- 🎨 **Beautiful UI** - Modern, responsive design with dark mode support
-- 🔗 **URL Validation** - Ensures all links are valid URLs
-- 💾 **Persistent Storage** - SQLite database for reliable data storage
+## ✨ Features
 
-## Tech Stack
+- **Interactive World Map** - Powered by amCharts with animated flight paths from San Francisco
+- **Ranked Destinations** - Drag and reorder your travel priorities
+- **Rich Destination Details**:
+  - 📍 Location with coordinates
+  - 💰 Budget estimation (from Budget to Ultra Luxury)
+  - 🗓️ Timeline planning
+  - ✍️ Personal reasons to visit
+  - 🖼️ Custom destination images
+- **Stunning Dark Theme** - Modern, atmospheric design
+- **Animated Plane** - Watch flights animate from SF to your selected destination
+- **Responsive Design** - Works beautifully on desktop and mobile
 
-- **Frontend**: Next.js 16, React, TypeScript
-- **Styling**: Tailwind CSS
-- **Database**: SQLite (better-sqlite3)
-- **Deployment**: Vercel (recommended)
-
-## Getting Started
+## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 20.5.1 or higher
+- Node.js 18+ installed
 - npm or yarn
+- Vercel account (for deployment)
 
-### Installation
+### Local Development
 
 1. Clone the repository:
-\`\`\`bash
+
+```bash
 git clone <your-repo-url>
 cd Wishlist
-\`\`\`
+```
 
 2. Install dependencies:
-\`\`\`bash
+
+```bash
 npm install
-\`\`\`
+```
 
 3. Run the development server:
-\`\`\`bash
+
+```bash
 npm run dev
-\`\`\`
+```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser
+4. Open [http://localhost:3000](http://localhost:3000)
 
-The app will automatically create a SQLite database in the `data/` directory.
+### Database Setup
 
-## Deployment
+The app uses Vercel Postgres for data persistence. For local development, you'll need to:
 
-### Vercel (Recommended)
+1. Create a Vercel Postgres database in your Vercel dashboard
+2. Link it to your project or add the connection strings to a `.env.local` file:
 
-#### Option 1: Deploy via Vercel Dashboard
+```env
+POSTGRES_URL="..."
+POSTGRES_PRISMA_URL="..."
+POSTGRES_URL_NO_SSL="..."
+POSTGRES_URL_NON_POOLING="..."
+POSTGRES_USER="..."
+POSTGRES_HOST="..."
+POSTGRES_PASSWORD="..."
+POSTGRES_DATABASE="..."
+```
 
-1. Push your code to GitHub:
-\`\`\`bash
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin <your-github-repo-url>
-git push -u origin main
-\`\`\`
+## 🌍 Adding Destinations
 
-2. Go to [vercel.com](https://vercel.com)
-3. Click "Add New Project"
-4. Import your GitHub repository
-5. Vercel will auto-detect Next.js settings
-6. Click "Deploy"
+1. Click "Add Destination"
+2. Enter the city/destination name (e.g., "Tokyo", "Machu Picchu")
+3. Enter the country (e.g., "Japan", "Peru")
+4. **Coordinates are found automatically!** 🎉
+5. Select your budget range and timeline
+6. Add your personal reason for wanting to visit
+7. Optionally add an image URL
+8. Click "Add to Wishlist"
 
-#### Option 2: Deploy via Vercel CLI
+### Automatic Geocoding
 
-\`\`\`bash
-npm install -g vercel
-vercel
-\`\`\`
+The app uses OpenStreetMap's Nominatim API to automatically find coordinates:
 
-Follow the prompts to deploy.
+- Just type the city and country
+- Watch for the ✅ confirmation when the location is found
+- If the location isn't found, try a different spelling or nearby city
 
-### Important Notes for Production
+## 🗺️ Using the Map
 
-⚠️ **Database Persistence on Vercel:**
+- **Click on markers** to select a destination
+- **Watch the plane animate** from San Francisco to your selected destination
+- **Use zoom controls** on the right side of the map
+- **Click the home button** to reset the view
 
-Vercel's serverless environment doesn't persist files between deployments. For production, you'll want to upgrade to a cloud database:
+## 💻 Tech Stack
 
-#### Recommended Database Options:
+- **Framework**: Next.js 14
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS 4
+- **Database**: Vercel Postgres
+- **Maps**: amCharts 4
+- **Deployment**: Vercel
 
-1. **Vercel Postgres** (Easiest for Vercel deployments)
-   - Free tier available
-   - Seamless integration with Vercel
-   - [Setup Guide](https://vercel.com/docs/storage/vercel-postgres)
+## 🚢 Deployment
 
-2. **Supabase** (PostgreSQL)
-   - Free tier available
-   - Great for relational data
-   - [Setup Guide](https://supabase.com/docs)
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed instructions.
 
-3. **PlanetScale** (MySQL)
-   - Free tier available
-   - Serverless database platform
-   - [Setup Guide](https://planetscale.com/docs)
+### Quick Deploy
 
-#### To Migrate to a Cloud Database:
+1. Push your code to GitHub
+2. Import your repo in [Vercel](https://vercel.com)
+3. Create a Postgres database in Vercel Storage
+4. Deploy!
 
-1. Choose a database provider from above
-2. Update `lib/db.ts` to use the new database connection
-3. Install the appropriate database client (e.g., `@vercel/postgres`, `pg`, or `mysql2`)
-4. Add database credentials to Vercel environment variables
+## 📁 Project Structure
 
-### Alternative Deployment Options
-
-#### Railway
-
-\`\`\`bash
-# Install Railway CLI
-npm i -g @railway/cli
-
-# Login and deploy
-railway login
-railway init
-railway up
-\`\`\`
-
-Railway supports persistent storage, so SQLite will work out of the box!
-
-#### Render
-
-1. Create a new Web Service
-2. Connect your GitHub repository
-3. Render will auto-detect Next.js
-4. Deploy
-
-Note: For persistent SQLite on Render, you'll need to use a persistent disk.
-
-## Project Structure
-
-\`\`\`
+```
 Wishlist/
 ├── app/
 │   ├── api/
 │   │   └── wishlist/
-│   │       ├── route.ts          # GET, POST endpoints
+│   │       ├── route.ts          # GET, POST, PATCH endpoints
 │   │       └── [id]/
-│   │           └── route.ts      # GET, PUT, DELETE by ID
+│   │           └── route.ts      # GET, PUT, DELETE endpoints
+│   ├── components/
+│   │   └── WorldMap.tsx          # amCharts interactive map
 │   ├── globals.css               # Global styles
 │   ├── layout.tsx                # Root layout
-│   └── page.tsx                  # Main page with UI
+│   └── page.tsx                  # Main app page
 ├── lib/
-│   └── db.ts                     # Database utilities
-├── data/
-│   └── wishlist.db              # SQLite database (auto-created)
+│   └── db.ts                     # Database operations
 ├── public/                       # Static assets
-└── package.json
-\`\`\`
+├── package.json
+└── README.md
+```
 
-## API Routes
+## 🎨 Customization
 
-### Get All Items
-\`\`\`
-GET /api/wishlist
-\`\`\`
+### Change Origin City
 
-### Create Item
-\`\`\`
-POST /api/wishlist
-Body: { link: string, notes?: string }
-\`\`\`
+Edit the `SF_COORDS` constant in `app/components/WorldMap.tsx`:
 
-### Get Single Item
-\`\`\`
-GET /api/wishlist/:id
-\`\`\`
+```typescript
+const SF_COORDS = {
+  latitude: 37.7749,
+  longitude: -122.4194,
+  title: "San Francisco",
+};
+```
 
-### Update Item
-\`\`\`
-PUT /api/wishlist/:id
-Body: { link: string, notes?: string }
-\`\`\`
+### Add Budget Options
 
-### Delete Item
-\`\`\`
-DELETE /api/wishlist/:id
-\`\`\`
+Edit `BUDGET_OPTIONS` in `app/page.tsx`:
 
-## Development
+```typescript
+const BUDGET_OPTIONS = [
+  { value: "budget", label: "💰 Budget ($500-1,500)", color: "bg-emerald-500" },
+  // Add more options...
+];
+```
 
-### Available Scripts
+### Modify Timeline Options
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm start` - Start production server
-- `npm run lint` - Run ESLint
+Edit `TIMELINE_OPTIONS` in `app/page.tsx`:
 
-### Database Schema
+```typescript
+const TIMELINE_OPTIONS = [
+  { value: "2025-q1", label: "🌸 Q1 2025 (Jan-Mar)" },
+  // Add more options...
+];
+```
 
-\`\`\`sql
-CREATE TABLE wishlist_items (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  link TEXT NOT NULL,
-  notes TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-\`\`\`
+## 📝 License
 
-## Customization
+MIT License - feel free to use this for your own travel planning!
 
-### Changing Colors
+## 🙏 Acknowledgments
 
-Edit the gradient in `app/page.tsx`:
-
-\`\`\`tsx
-// From purple/pink/blue theme
-className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50"
-
-// To your custom colors
-className="min-h-screen bg-gradient-to-br from-green-50 via-blue-50 to-purple-50"
-\`\`\`
-
-### Adding Features
-
-Some ideas for extensions:
-- 🔍 Search functionality
-- 🏷️ Tags/categories
-- 📊 Priority levels
-- 🖼️ Image previews for links
-- 👥 User authentication
-- 📱 Mobile app (React Native)
-
-## Troubleshooting
-
-### Port Already in Use
-
-If port 3000 is already in use:
-\`\`\`bash
-PORT=3001 npm run dev
-\`\`\`
-
-### Database Locked Error
-
-If you get a "database is locked" error, ensure you're not running multiple instances of the app.
-
-### Module Not Found Errors
-
-Clear the cache and reinstall:
-\`\`\`bash
-rm -rf node_modules package-lock.json
-npm install
-\`\`\`
-
-## Contributing
-
-Feel free to submit issues and enhancement requests!
-
-## License
-
-MIT License - feel free to use this project however you'd like!
-
-## Support
-
-If you have any questions or run into issues, please open an issue on GitHub.
+- [amCharts](https://www.amcharts.com/) for the beautiful map library
+- [Tailwind CSS](https://tailwindcss.com/) for styling
+- [Vercel](https://vercel.com/) for hosting and database
 
 ---
 
-Made with ❤️ using Next.js and TypeScript
+Made with ❤️ for dreamers and travelers
+
+Happy travels! ✈️🌏

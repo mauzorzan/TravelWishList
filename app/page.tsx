@@ -1,45 +1,159 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 
-interface WishlistItem {
+// Dynamically import the WorldMap to avoid SSR issues with amCharts
+const WorldMap = dynamic(() => import('./components/WorldMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-[400px] lg:h-[500px] rounded-2xl bg-slate-800 animate-pulse flex items-center justify-center">
+      <div className="text-slate-400">Loading map...</div>
+    </div>
+  ),
+});
+
+interface TravelDestination {
   id: number;
-  link: string;
-  notes: string | null;
+  rank: number;
+  destination: string;
+  country: string;
+  latitude: number;
+  longitude: number;
+  reason: string;
+  budget: string;
+  timeline: string;
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 }
 
+interface GeocodingResult {
+  latitude: number;
+  longitude: number;
+  displayName: string;
+}
+
+const TIMELINE_OPTIONS = [
+  { value: '2025-q1', label: '🌸 Q1 2025 (Jan-Mar)' },
+  { value: '2025-q2', label: '☀️ Q2 2025 (Apr-Jun)' },
+  { value: '2025-q3', label: '🍂 Q3 2025 (Jul-Sep)' },
+  { value: '2025-q4', label: '❄️ Q4 2025 (Oct-Dec)' },
+  { value: '2026', label: '🗓️ 2026' },
+  { value: 'someday', label: '✨ Someday' },
+];
+
+// Geocoding function using OpenStreetMap Nominatim API (free, no API key needed)
+async function geocodeLocation(destination: string, country: string): Promise<GeocodingResult | null> {
+  try {
+    const query = `${destination}, ${country}`;
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`,
+      {
+        headers: {
+          'User-Agent': 'TravelWishlistApp/1.0',
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Geocoding request failed');
+    }
+
+    const data = await response.json();
+
+    if (data && data.length > 0) {
+      return {
+        latitude: parseFloat(data[0].lat),
+        longitude: parseFloat(data[0].lon),
+        displayName: data[0].display_name,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    return null;
+  }
+}
+
 export default function Home() {
-  const [items, setItems] = useState<WishlistItem[]>([]);
-  const [link, setLink] = useState('');
-  const [notes, setNotes] = useState('');
+  const [destinations, setDestinations] = useState<TravelDestination[]>([]);
+  const [selectedDestination, setSelectedDestination] = useState<TravelDestination | null>(null);
+  const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Geocoding state
+  const [geocodingStatus, setGeocodingStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [coordinates, setCoordinates] = useState<{ lat: number; lon: number } | null>(null);
+  const [locationPreview, setLocationPreview] = useState('');
+  const geocodeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Form state
+  const [formData, setFormData] = useState({
+    destination: '',
+    country: '',
+    reason: '',
+    timeline: 'someday',
+    image_url: '',
+  });
+
   useEffect(() => {
-    fetchItems();
+    fetchDestinations();
   }, []);
 
-  const fetchItems = async () => {
+  // Auto-geocode when destination or country changes
+  useEffect(() => {
+    // Clear previous timeout
+    if (geocodeTimeoutRef.current) {
+      clearTimeout(geocodeTimeoutRef.current);
+    }
+
+    // Reset geocoding state
+    if (!formData.destination.trim() || !formData.country.trim()) {
+      setGeocodingStatus('idle');
+      setCoordinates(null);
+      setLocationPreview('');
+      return;
+    }
+
+    // Debounce geocoding requests
+    setGeocodingStatus('loading');
+    geocodeTimeoutRef.current = setTimeout(async () => {
+      const result = await geocodeLocation(formData.destination, formData.country);
+      
+      if (result) {
+        setCoordinates({ lat: result.latitude, lon: result.longitude });
+        setLocationPreview(result.displayName);
+        setGeocodingStatus('success');
+      } else {
+        setCoordinates(null);
+        setLocationPreview('');
+        setGeocodingStatus('error');
+      }
+    }, 800); // Wait 800ms after user stops typing
+
+    return () => {
+      if (geocodeTimeoutRef.current) {
+        clearTimeout(geocodeTimeoutRef.current);
+      }
+    };
+  }, [formData.destination, formData.country]);
+
+  const fetchDestinations = async () => {
     try {
       const response = await fetch('/api/wishlist');
       if (response.ok) {
         const data = await response.json();
-        setItems(data);
+        setDestinations(data);
+        if (data.length > 0 && !selectedDestination) {
+          setSelectedDestination(data[0]);
+        }
       }
     } catch (error) {
-      console.error('Error fetching items:', error);
-    }
-  };
-
-  const validateUrl = (url: string) => {
-    try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
+      console.error('Error fetching destinations:', error);
     }
   };
 
@@ -47,46 +161,56 @@ export default function Home() {
     e.preventDefault();
     setError('');
 
-    if (!link.trim()) {
-      setError('Please enter a link');
+    if (!formData.destination.trim() || !formData.country.trim()) {
+      setError('Please enter destination and country');
       return;
     }
 
-    if (!validateUrl(link)) {
-      setError('Please enter a valid URL (e.g., https://example.com)');
+    if (!coordinates) {
+      setError('Could not find coordinates for this location. Please check the destination and country names.');
       return;
     }
 
     setLoading(true);
 
     try {
+      const payload = {
+        rank: editingId ? destinations.find(d => d.id === editingId)?.rank : destinations.length + 1,
+        destination: formData.destination,
+        country: formData.country,
+        latitude: coordinates.lat,
+        longitude: coordinates.lon,
+        reason: formData.reason,
+        budget: 'moderate',
+        timeline: formData.timeline,
+        image_url: formData.image_url,
+      };
+
       if (editingId) {
-        // Update existing item
         const response = await fetch(`/api/wishlist/${editingId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ link, notes }),
+          body: JSON.stringify(payload),
         });
 
         if (response.ok) {
-          await fetchItems();
+          await fetchDestinations();
           resetForm();
         } else {
-          setError('Failed to update item');
+          setError('Failed to update destination');
         }
       } else {
-        // Create new item
         const response = await fetch('/api/wishlist', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ link, notes }),
+          body: JSON.stringify(payload),
         });
 
         if (response.ok) {
-          await fetchItems();
+          await fetchDestinations();
           resetForm();
         } else {
-          setError('Failed to add item');
+          setError('Failed to add destination');
         }
       }
     } catch (error) {
@@ -97,15 +221,25 @@ export default function Home() {
     }
   };
 
-  const handleEdit = (item: WishlistItem) => {
-    setEditingId(item.id);
-    setLink(item.link);
-    setNotes(item.notes || '');
+  const handleEdit = (dest: TravelDestination) => {
+    setEditingId(dest.id);
+    setFormData({
+      destination: dest.destination,
+      country: dest.country,
+      reason: dest.reason,
+      timeline: dest.timeline,
+      image_url: dest.image_url || '',
+    });
+    // Set existing coordinates
+    setCoordinates({ lat: dest.latitude, lon: dest.longitude });
+    setGeocodingStatus('success');
+    setLocationPreview(`${dest.destination}, ${dest.country}`);
+    setShowForm(true);
     setError('');
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Are you sure you want to delete this item?')) return;
+    if (!confirm('Are you sure you want to delete this destination?')) return;
 
     try {
       const response = await fetch(`/api/wishlist/${id}`, {
@@ -113,155 +247,414 @@ export default function Home() {
       });
 
       if (response.ok) {
-        await fetchItems();
+        await fetchDestinations();
+        if (selectedDestination?.id === id) {
+          setSelectedDestination(destinations.length > 1 ? destinations[0] : null);
+        }
       } else {
-        alert('Failed to delete item');
+        alert('Failed to delete destination');
       }
     } catch (error) {
-      console.error('Error deleting item:', error);
+      console.error('Error deleting destination:', error);
       alert('An error occurred');
     }
   };
 
   const resetForm = () => {
-    setLink('');
-    setNotes('');
+    setFormData({
+      destination: '',
+      country: '',
+      reason: '',
+      timeline: 'someday',
+      image_url: '',
+    });
     setEditingId(null);
+    setShowForm(false);
     setError('');
+    setCoordinates(null);
+    setGeocodingStatus('idle');
+    setLocationPreview('');
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+  const moveUp = async (index: number) => {
+    if (index === 0) return;
+    const newDests = [...destinations];
+    const temp = newDests[index];
+    newDests[index] = newDests[index - 1];
+    newDests[index - 1] = temp;
+    
+    // Update ranks
+    const ranks = newDests.map((d, i) => ({ id: d.id, rank: i + 1 }));
+    
+    try {
+      await fetch('/api/wishlist', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ranks }),
+      });
+      await fetchDestinations();
+    } catch (error) {
+      console.error('Error updating ranks:', error);
+    }
+  };
+
+  const moveDown = async (index: number) => {
+    if (index === destinations.length - 1) return;
+    const newDests = [...destinations];
+    const temp = newDests[index];
+    newDests[index] = newDests[index + 1];
+    newDests[index + 1] = temp;
+    
+    // Update ranks
+    const ranks = newDests.map((d, i) => ({ id: d.id, rank: i + 1 }));
+    
+    try {
+      await fetch('/api/wishlist', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ranks }),
+      });
+      await fetchDestinations();
+    } catch (error) {
+      console.error('Error updating ranks:', error);
+    }
+  };
+
+  const handleSelectDestination = useCallback((dest: TravelDestination) => {
+    setSelectedDestination(dest);
+  }, []);
+
+  const getTimelineInfo = (timeline: string) => {
+    return TIMELINE_OPTIONS.find(t => t.value === timeline) || TIMELINE_OPTIONS[5];
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-pink-50 to-blue-50 dark:from-gray-900 dark:via-purple-900 dark:to-blue-900">
-      <div className="mx-auto max-w-4xl px-4 py-12 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+      {/* Animated background elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }}></div>
+      </div>
+
+      <div className="relative mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-4xl font-bold text-gray-900 dark:text-white sm:text-5xl">
-            ✨ Good Snebby's Wishlist
+          <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-amber-400 sm:text-6xl tracking-tight">
+            Travel Wishlist
           </h1>
-          <p className="mt-2 text-lg text-gray-600 dark:text-gray-300">
-            Save all the things a sne could want in one place
+          <p className="mt-3 text-lg text-slate-400 font-light">
+            Your dream destinations, ranked and mapped from San Francisco
           </p>
         </div>
 
+        {/* Map Section */}
+        <div className="mb-8 rounded-3xl bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 p-4 shadow-2xl">
+          <div className="flex items-center gap-3 mb-4 px-2">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-cyan-400 animate-pulse"></div>
+              <span className="text-slate-300 text-sm">San Francisco (Origin)</span>
+            </div>
+            {selectedDestination && (
+              <>
+                <span className="text-slate-600">→</span>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></div>
+                  <span className="text-amber-300 text-sm font-medium">
+                    {selectedDestination.destination}, {selectedDestination.country}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+          <WorldMap
+            destinations={destinations}
+            selectedDestination={selectedDestination}
+            onSelectDestination={handleSelectDestination}
+          />
+        </div>
+
+
+        {/* Add Button */}
+        <div className="mb-6 flex justify-end">
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 px-6 py-3 font-semibold text-white shadow-lg shadow-purple-500/25 transition-all hover:shadow-xl hover:shadow-purple-500/40 hover:scale-105"
+          >
+            <span className="text-xl">{showForm ? '✕' : '+'}</span>
+            {showForm ? 'Cancel' : 'Add Destination'}
+          </button>
+        </div>
+
         {/* Add/Edit Form */}
-        <div className="mb-8 rounded-2xl bg-white p-6 shadow-xl dark:bg-gray-800">
-          <h2 className="mb-4 text-xl font-semibold text-gray-900 dark:text-white">
-            {editingId ? 'Edit Item' : 'Add New Item'}
+        {showForm && (
+          <div className="mb-8 rounded-3xl bg-slate-800/70 backdrop-blur-xl border border-slate-700/50 p-6 shadow-2xl animate-in slide-in-from-top duration-300">
+            <h2 className="mb-6 text-2xl font-bold text-white flex items-center gap-3">
+              <span className="text-3xl">{editingId ? '✏️' : '🌍'}</span>
+              {editingId ? 'Edit Destination' : 'Add New Destination'}
           </h2>
-          <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div>
-              <label htmlFor="link" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Link *
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    City / Destination *
               </label>
               <input
                 type="text"
-                id="link"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                placeholder="https://example.com/product"
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                    value={formData.destination}
+                    onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                    placeholder="e.g., Tokyo, Paris, Machu Picchu"
+                    className="w-full rounded-xl border border-slate-600 bg-slate-700/50 px-4 py-3 text-white placeholder-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all"
               />
             </div>
             <div>
-              <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Notes
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Country *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.country}
+                    onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                    placeholder="e.g., Japan, France, Peru"
+                    className="w-full rounded-xl border border-slate-600 bg-slate-700/50 px-4 py-3 text-white placeholder-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Location Preview / Geocoding Status */}
+              <div className={`rounded-xl p-4 transition-all ${
+                geocodingStatus === 'loading' ? 'bg-slate-700/50 border border-slate-600' :
+                geocodingStatus === 'success' ? 'bg-emerald-900/30 border border-emerald-500/50' :
+                geocodingStatus === 'error' ? 'bg-red-900/30 border border-red-500/50' :
+                'bg-slate-700/30 border border-slate-700'
+              }`}>
+                <div className="flex items-center gap-3">
+                  {geocodingStatus === 'idle' && (
+                    <>
+                      <span className="text-xl">📍</span>
+                      <span className="text-slate-400 text-sm">Enter a city and country to automatically find coordinates</span>
+                    </>
+                  )}
+                  {geocodingStatus === 'loading' && (
+                    <>
+                      <div className="w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-slate-300 text-sm">Finding location...</span>
+                    </>
+                  )}
+                  {geocodingStatus === 'success' && coordinates && (
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xl">✅</span>
+                        <span className="text-emerald-300 text-sm font-medium">Location found!</span>
+                      </div>
+                      <p className="text-slate-300 text-xs truncate">{locationPreview}</p>
+                      <p className="text-slate-500 text-xs font-mono mt-1">
+                        📐 {coordinates.lat.toFixed(4)}°, {coordinates.lon.toFixed(4)}°
+                      </p>
+                    </div>
+                  )}
+                  {geocodingStatus === 'error' && (
+                    <>
+                      <span className="text-xl">❌</span>
+                      <span className="text-red-300 text-sm">Could not find this location. Try a different spelling or nearby city.</span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Timeline
+                </label>
+                <select
+                  value={formData.timeline}
+                  onChange={(e) => setFormData({ ...formData, timeline: e.target.value })}
+                  className="w-full rounded-xl border border-slate-600 bg-slate-700/50 px-4 py-3 text-white focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                >
+                  {TIMELINE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Reason to Visit
               </label>
               <textarea
-                id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Add any notes about this item..."
+                  value={formData.reason}
+                  onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+                  placeholder="What draws you to this destination?"
                 rows={3}
-                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-gray-900 placeholder-gray-400 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-500"
+                  className="w-full rounded-xl border border-slate-600 bg-slate-700/50 px-4 py-3 text-white placeholder-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Image URL (optional)
+                </label>
+                <input
+                  type="url"
+                  value={formData.image_url}
+                  onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                  placeholder="https://example.com/image.jpg"
+                  className="w-full rounded-xl border border-slate-600 bg-slate-700/50 px-4 py-3 text-white placeholder-slate-400 focus:border-cyan-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-all"
               />
             </div>
             {error && (
-              <div className="rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/30 dark:text-red-200">
+                <div className="rounded-xl bg-red-500/20 border border-red-500/50 p-4 text-red-300">
                 {error}
               </div>
             )}
-            <div className="flex gap-3">
+              <div className="flex gap-4">
               <button
                 type="submit"
-                disabled={loading}
-                className="flex-1 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-2.5 font-medium text-white transition-all hover:from-purple-700 hover:to-pink-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 dark:focus:ring-offset-gray-800"
+                  disabled={loading || geocodingStatus === 'loading' || geocodingStatus === 'error'}
+                  className="flex-1 rounded-xl bg-gradient-to-r from-cyan-500 to-purple-500 px-6 py-3 font-semibold text-white transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Saving...' : editingId ? 'Update Item' : 'Add to Wishlist'}
+                  {loading ? 'Saving...' : editingId ? 'Update Destination' : 'Add to Wishlist'}
               </button>
-              {editingId && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="rounded-lg border border-gray-300 px-6 py-2.5 font-medium text-gray-700 transition-colors hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
+                  className="rounded-xl border border-slate-600 px-6 py-3 font-medium text-slate-300 transition-colors hover:bg-slate-700"
                 >
                   Cancel
                 </button>
-              )}
             </div>
           </form>
         </div>
+        )}
 
-        {/* Items List */}
+        {/* Destinations List */}
         <div className="space-y-4">
-          {items.length === 0 ? (
-            <div className="rounded-2xl bg-white p-12 text-center shadow-xl dark:bg-gray-800">
-              <div className="text-6xl mb-4">🎁</div>
-              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Your wishlist is empty
+          {destinations.length === 0 ? (
+            <div className="rounded-3xl bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 p-12 text-center">
+              <div className="text-7xl mb-6">🌏</div>
+              <h3 className="text-2xl font-bold text-white mb-2">
+                Your travel wishlist is empty
               </h3>
-              <p className="mt-2 text-gray-600 dark:text-gray-400">
-                Start adding items you want to save!
+              <p className="text-slate-400 mb-6">
+                Start adding destinations you dream of visiting!
               </p>
+              <button
+                onClick={() => setShowForm(true)}
+                className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 px-8 py-3 font-semibold text-white transition-all hover:scale-105"
+              >
+                <span>+</span> Add Your First Destination
+              </button>
             </div>
           ) : (
-            items.map((item) => (
+            destinations.map((dest, index) => (
               <div
-                key={item.id}
-                className="group rounded-2xl bg-white p-6 shadow-lg transition-all hover:shadow-xl dark:bg-gray-800"
+                key={dest.id}
+                onClick={() => setSelectedDestination(dest)}
+                className={`group relative rounded-3xl bg-slate-800/60 backdrop-blur-xl border transition-all duration-300 cursor-pointer overflow-hidden ${
+                  selectedDestination?.id === dest.id
+                    ? 'border-cyan-500/50 shadow-lg shadow-cyan-500/10 ring-2 ring-cyan-500/20'
+                    : 'border-slate-700/50 hover:border-slate-600'
+                }`}
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <a
-                      href={item.link}
-            target="_blank"
-            rel="noopener noreferrer"
-                      className="block break-all text-lg font-medium text-purple-600 hover:text-purple-700 hover:underline dark:text-purple-400 dark:hover:text-purple-300"
-                    >
-                      {item.link}
-                    </a>
-                    {item.notes && (
-                      <p className="mt-2 text-gray-600 dark:text-gray-300">{item.notes}</p>
-                    )}
-                    <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
-                      Added {formatDate(item.created_at)}
-                    </p>
+                {/* Rank Badge */}
+                <div className="absolute top-4 left-4 z-10">
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl shadow-lg ${
+                    index === 0 ? 'bg-gradient-to-br from-amber-400 to-amber-600 text-amber-900' :
+                    index === 1 ? 'bg-gradient-to-br from-slate-300 to-slate-500 text-slate-800' :
+                    index === 2 ? 'bg-gradient-to-br from-amber-600 to-amber-800 text-amber-100' :
+                    'bg-slate-700 text-slate-300'
+                  }`}>
+                    {index + 1}
                   </div>
-                  <div className="flex gap-2">
+                </div>
+
+                <div className="flex flex-col lg:flex-row">
+                  {/* Image */}
+                  {dest.image_url && (
+                    <div className="lg:w-64 h-48 lg:h-auto overflow-hidden">
+                      <img
+                        src={dest.image_url}
+                        alt={dest.destination}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    </div>
+                  )}
+                  
+                  {/* Content */}
+                  <div className="flex-1 p-6 pl-20">
+                    <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                      <div className="flex-1">
+                        <h3 className="text-2xl font-bold text-white mb-1">
+                          {dest.destination}
+                        </h3>
+                        <p className="text-slate-400 text-lg mb-4">
+                          📍 {dest.country}
+                        </p>
+                        
+                        {dest.reason && (
+                          <p className="text-slate-300 mb-4 leading-relaxed">
+                            &ldquo;{dest.reason}&rdquo;
+                          </p>
+                        )}
+
+                        <div className="flex flex-wrap gap-3">
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-indigo-500 text-white">
+                            {getTimelineInfo(dest.timeline).label}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => moveUp(index)}
+                          disabled={index === 0}
+                          className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          title="Move up"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          onClick={() => moveDown(index)}
+                          disabled={index === destinations.length - 1}
+                          className="p-2 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          title="Move down"
+                        >
+                          ↓
+                        </button>
                     <button
-                      onClick={() => handleEdit(item)}
-                      className="rounded-lg bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50"
+                          onClick={() => handleEdit(dest)}
+                          className="p-2 rounded-lg bg-cyan-600/20 text-cyan-400 hover:bg-cyan-600/30 transition-colors"
+                          title="Edit"
                     >
-                      Edit
+                          ✏️
                     </button>
                     <button
-                      onClick={() => handleDelete(item.id)}
-                      className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50"
+                          onClick={() => handleDelete(dest.id)}
+                          className="p-2 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 transition-colors"
+                          title="Delete"
                     >
-                      Delete
+                          🗑️
                     </button>
+                      </div>
+                    </div>
+
+                    {/* Coordinates */}
+                    <div className="mt-4 pt-4 border-t border-slate-700/50">
+                      <p className="text-xs text-slate-500 font-mono">
+                        📐 {dest.latitude.toFixed(4)}°, {dest.longitude.toFixed(4)}°
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
             ))
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="mt-12 text-center text-slate-500 text-sm">
+          <p>✈️ Dreaming from San Francisco • {destinations.length} destination{destinations.length !== 1 ? 's' : ''} on your list</p>
         </div>
       </div>
     </div>

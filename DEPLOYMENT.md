@@ -1,4 +1,4 @@
-# 🚀 Deployment Guide
+# 🚀 Travel Wishlist Deployment Guide
 
 ## Quick Deploy to Vercel (5 minutes)
 
@@ -6,22 +6,22 @@
 
 Make sure all your changes are committed to Git:
 
-\`\`\`bash
+```bash
 git init
 git add .
-git commit -m "Initial wishlist app"
-\`\`\`
+git commit -m "Travel wishlist app with interactive map"
+```
 
 ### Step 2: Push to GitHub
 
 1. Create a new repository on [GitHub](https://github.com/new)
 2. Push your code:
 
-\`\`\`bash
+```bash
 git branch -M main
 git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
 git push -u origin main
-\`\`\`
+```
 
 ### Step 3: Deploy on Vercel
 
@@ -32,244 +32,132 @@ git push -u origin main
 3. Import your GitHub repository
 4. Vercel will auto-detect Next.js - no configuration needed!
 5. Click "Deploy"
-6. Wait 2-3 minutes
-7. Your app is live! 🎉
+6. Wait 2-3 minutes for initial deploy
 
 **Option B: Using Vercel CLI**
 
-\`\`\`bash
+```bash
 npm install -g vercel
 vercel login
 vercel
-\`\`\`
+```
 
 Follow the prompts and your app will be deployed!
 
-### Step 4: Access Your App
+### Step 4: Set Up Database (Required!)
 
-After deployment, Vercel will give you a URL like:
-\`\`\`
-https://your-app-name.vercel.app
-\`\`\`
-
-## ⚠️ Important: Database Persistence
-
-The current SQLite setup works great for local development, but Vercel's serverless environment doesn't persist files between deployments.
-
-**What this means:**
-- Your data will be reset on each new deployment
-- The database works fine between requests, just not across deployments
-
-### Solution: Upgrade to Cloud Database (Recommended for Production)
-
-Choose one of these options:
-
----
-
-## Option 1: Vercel Postgres (Easiest)
-
-### Setup (5 minutes)
+The app uses Vercel Postgres for storing your travel destinations.
 
 1. In your Vercel project dashboard:
    - Go to "Storage" tab
    - Click "Create Database"
    - Select "Postgres"
-   - Click "Continue"
+   - Click "Continue" and follow the setup
 
-2. Install the Vercel Postgres package:
+2. The database will be automatically connected to your project
 
-\`\`\`bash
-npm install @vercel/postgres
-\`\`\`
+3. Redeploy your app:
+   - Go to "Deployments" tab
+   - Click the three dots on the latest deployment
+   - Click "Redeploy"
 
-3. Update `lib/db.ts`:
+The app will automatically create the `travel_destinations` table with this schema:
 
-\`\`\`typescript
-import { sql } from '@vercel/postgres';
+```sql
+CREATE TABLE IF NOT EXISTS travel_destinations (
+  id SERIAL PRIMARY KEY,
+  rank INTEGER NOT NULL,
+  destination TEXT NOT NULL,
+  country TEXT NOT NULL,
+  latitude DECIMAL(10, 8) NOT NULL,
+  longitude DECIMAL(11, 8) NOT NULL,
+  reason TEXT NOT NULL,
+  budget TEXT NOT NULL,
+  timeline TEXT NOT NULL,
+  image_url TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+```
 
-export interface WishlistItem {
-  id: number;
-  link: string;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
-}
+### Step 5: Access Your App
 
-export interface NewWishlistItem {
-  link: string;
-  notes?: string;
-}
+After deployment, Vercel will give you a URL like:
+```
+https://your-travel-wishlist.vercel.app
+```
 
-// Initialize table
-export async function initializeDatabase() {
-  await sql\`
-    CREATE TABLE IF NOT EXISTS wishlist_items (
-      id SERIAL PRIMARY KEY,
-      link TEXT NOT NULL,
-      notes TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-  \`;
-}
+## 🗺️ amCharts License
 
-export const getAll = async (): Promise<WishlistItem[]> => {
-  const { rows } = await sql\`SELECT * FROM wishlist_items ORDER BY created_at DESC\`;
-  return rows as WishlistItem[];
-};
+The app uses amCharts 4 for the interactive map. For personal use, you can use the free version which shows a small amCharts logo.
 
-export const getById = async (id: number): Promise<WishlistItem | undefined> => {
-  const { rows } = await sql\`SELECT * FROM wishlist_items WHERE id = \${id}\`;
-  return rows[0] as WishlistItem | undefined;
-};
+For commercial use or to remove the logo, get a license at [amcharts.com](https://www.amcharts.com/online-store/)
 
-export const create = async (item: NewWishlistItem): Promise<WishlistItem> => {
-  const { rows } = await sql\`
-    INSERT INTO wishlist_items (link, notes)
-    VALUES (\${item.link}, \${item.notes || null})
-    RETURNING *
-  \`;
-  return rows[0] as WishlistItem;
-};
+Add your license keys in `app/components/WorldMap.tsx`:
 
-export const update = async (id: number, item: Partial<NewWishlistItem>): Promise<WishlistItem | undefined> => {
-  const existing = await getById(id);
-  if (!existing) return undefined;
+```typescript
+am4core.addLicense("CH_YOUR_LICENSE");
+am4core.addLicense("MP_YOUR_LICENSE");
+```
 
-  const { rows } = await sql\`
-    UPDATE wishlist_items
-    SET link = \${item.link !== undefined ? item.link : existing.link},
-        notes = \${item.notes !== undefined ? item.notes : existing.notes},
-        updated_at = CURRENT_TIMESTAMP
-    WHERE id = \${id}
-    RETURNING *
-  \`;
-  return rows[0] as WishlistItem | undefined;
-};
-
-export const remove = async (id: number): Promise<boolean> => {
-  const result = await sql\`DELETE FROM wishlist_items WHERE id = \${id}\`;
-  return result.rowCount > 0;
-};
-\`\`\`
-
-4. Update your API routes to use async/await (they already do!)
-
-5. Deploy:
-
-\`\`\`bash
-git add .
-git commit -m "Upgrade to Vercel Postgres"
-git push
-\`\`\`
-
-Vercel will automatically redeploy with the database connected!
-
----
-
-## Option 2: Supabase (Great Free Tier)
-
-### Setup (10 minutes)
-
-1. Go to [supabase.com](https://supabase.com) and create account
-2. Create a new project
-3. Get your connection string from Settings → Database
-4. Install Postgres client:
-
-\`\`\`bash
-npm install pg
-npm install -D @types/pg
-\`\`\`
-
-5. Add to Vercel environment variables:
-   - Go to your Vercel project → Settings → Environment Variables
-   - Add: \`DATABASE_URL\` = your Supabase connection string
-
-6. Update `lib/db.ts` with Postgres client code
-
-7. Deploy!
-
----
-
-## Option 3: Railway (Keeps SQLite!)
-
-Railway supports persistent storage, so you can keep using SQLite!
-
-### Setup (5 minutes)
-
-\`\`\`bash
-# Install Railway CLI
-npm i -g @railway/cli
-
-# Login
-railway login
-
-# Initialize project
-railway init
-
-# Deploy
-railway up
-\`\`\`
-
-Railway will:
-- Build your app
-- Create persistent storage for SQLite
-- Give you a live URL
-
-No code changes needed!
-
----
-
-## Testing Your Deployment
+## 🌍 Testing Your Deployment
 
 1. Open your deployed URL
-2. Add a test item
-3. Refresh the page - item should persist
-4. Try all CRUD operations
-5. Check dark mode works
+2. Add a test destination:
+   - Destination: "Tokyo"
+   - Country: "Japan"
+   - Latitude: 35.6762
+   - Longitude: 139.6503
+3. Watch the plane animate from San Francisco!
+4. Try reordering, editing, and deleting
 
-## Updating Your Deployed App
+## 🔄 Updating Your Deployed App
 
 Whenever you make changes:
 
-\`\`\`bash
+```bash
 git add .
 git commit -m "Your change description"
 git push
-\`\`\`
+```
 
 Vercel will automatically rebuild and redeploy!
 
-## Troubleshooting
+## 🛠️ Troubleshooting
+
+### Map not showing
+- Check browser console for amCharts errors
+- Ensure the page has finished loading
+- Try refreshing the page
 
 ### "Module not found" errors
-- Make sure all dependencies are in \`package.json\`
-- Run \`npm install\` locally first
-- Commit \`package-lock.json\`
+- Make sure all dependencies are in `package.json`
+- Run `npm install` locally first
+- Commit `package-lock.json`
 
 ### Database connection errors
-- Check environment variables are set in Vercel
-- Verify connection string is correct
-- Check database is running (for Supabase/PlanetScale)
+- Verify Postgres database is created in Vercel Storage
+- Check that database is linked to your project
+- Try redeploying after creating the database
 
 ### Build fails
 - Check build logs in Vercel dashboard
-- Try building locally first: \`npm run build\`
+- Try building locally first: `npm run build`
 - Ensure no TypeScript errors
 
-### App loads but data doesn't save
-- Check API routes are working: \`https://your-app.vercel.app/api/wishlist\`
-- Check browser console for errors
-- Verify database connection
+### Plane animation not working
+- Make sure destination coordinates are valid
+- Check that a destination is selected
+- Verify the map has finished loading
 
-## Custom Domain (Optional)
+## 🌐 Custom Domain (Optional)
 
 1. Go to your Vercel project → Settings → Domains
 2. Add your domain
 3. Follow DNS setup instructions
 4. Wait for SSL certificate (automatic)
 
-## Monitoring
+## 📊 Monitoring
 
 Vercel provides:
 - **Analytics**: Usage stats
@@ -278,6 +166,22 @@ Vercel provides:
 
 Access from your project dashboard!
 
+## 🔐 Environment Variables
+
+For local development, create `.env.local`:
+
+```env
+# These are automatically set when you create a Vercel Postgres database
+POSTGRES_URL="..."
+POSTGRES_PRISMA_URL="..."
+POSTGRES_URL_NO_SSL="..."
+POSTGRES_URL_NON_POOLING="..."
+POSTGRES_USER="..."
+POSTGRES_HOST="..."
+POSTGRES_PASSWORD="..."
+POSTGRES_DATABASE="..."
+```
+
 ---
 
 ## Need Help?
@@ -285,8 +189,8 @@ Access from your project dashboard!
 - [Vercel Docs](https://vercel.com/docs)
 - [Next.js Deployment](https://nextjs.org/docs/deployment)
 - [Vercel Postgres Guide](https://vercel.com/docs/storage/vercel-postgres)
+- [amCharts Docs](https://www.amcharts.com/docs/v4/)
 
 ---
 
-Happy deploying! 🚀
-
+Happy travels! ✈️🌏

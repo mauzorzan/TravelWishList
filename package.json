@@ -1,5 +1,5 @@
 {
-  "name": "wishlist-app",
+  "name": "travel-wishlist",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,13 +9,17 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@amcharts/amcharts4": "^4.10.39",
+    "@amcharts/amcharts4-geodata": "^4.1.28",
     "@vercel/postgres": "^0.10.0",
+    "better-sqlite3": "^12.5.0",
     "next": "^14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
