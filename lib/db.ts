@@ -31,6 +31,17 @@ export interface NewTravelDestination {
 // Check if we're in production (Vercel) or local development
 const isProduction = process.env.POSTGRES_URL !== undefined;
 
+// Helper to convert Postgres row to proper types (DECIMAL comes as string)
+function normalizeRow(row: Record<string, unknown>): TravelDestination {
+  return {
+    ...row,
+    latitude: typeof row.latitude === 'string' ? parseFloat(row.latitude) : row.latitude,
+    longitude: typeof row.longitude === 'string' ? parseFloat(row.longitude) : row.longitude,
+    rank: typeof row.rank === 'string' ? parseInt(row.rank, 10) : row.rank,
+    id: typeof row.id === 'string' ? parseInt(row.id, 10) : row.id,
+  } as TravelDestination;
+}
+
 // SQLite database for local development
 let sqliteDb: Database.Database | null = null;
 
@@ -92,7 +103,7 @@ export const getAll = async (): Promise<TravelDestination[]> => {
       await initProductionDb();
       const sql = await getProductionDb();
       const { rows } = await sql`SELECT * FROM travel_destinations ORDER BY rank ASC`;
-      return rows as TravelDestination[];
+      return rows.map(normalizeRow);
     } else {
       const db = getLocalDb();
       const rows = db.prepare('SELECT * FROM travel_destinations ORDER BY rank ASC').all();
@@ -109,7 +120,7 @@ export const getById = async (id: number): Promise<TravelDestination | undefined
     if (isProduction) {
       const sql = await getProductionDb();
       const { rows } = await sql`SELECT * FROM travel_destinations WHERE id = ${id}`;
-      return rows[0] as TravelDestination | undefined;
+      return rows[0] ? normalizeRow(rows[0]) : undefined;
     } else {
       const db = getLocalDb();
       const row = db.prepare('SELECT * FROM travel_destinations WHERE id = ?').get(id);
@@ -131,7 +142,7 @@ export const create = async (item: NewTravelDestination): Promise<TravelDestinat
         VALUES (${item.rank}, ${item.destination}, ${item.country}, ${item.latitude}, ${item.longitude}, ${item.reason}, ${item.budget}, ${item.timeline}, ${item.image_url || null})
         RETURNING *
       `;
-      return rows[0] as TravelDestination;
+      return normalizeRow(rows[0]);
     } else {
       const db = getLocalDb();
       const stmt = db.prepare(`
@@ -183,7 +194,7 @@ export const update = async (
         WHERE id = ${id}
         RETURNING *
       `;
-      return rows[0] as TravelDestination | undefined;
+      return rows[0] ? normalizeRow(rows[0]) : undefined;
     } else {
       const db = getLocalDb();
       db.prepare(`
